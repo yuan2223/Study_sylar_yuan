@@ -3,13 +3,14 @@
 
 namespace yuan
 {
-    Config::ConfigVarMap Config::s_datas;
+    //Config::ConfigVarMap Config::s_datas;
 
     // s_datas 的数据类型 std::map<std::string, ConfigVarBase::ptr> ConfigVarMap;
+    static yuan::Logger::ptr g_logger = YUAN_LOG_NAME("system");
     ConfigVarBase::ptr Config::LookupBase(const std::string& name)
     {
-        auto it = s_datas.find(name);
-        return it == s_datas.end() ? nullptr : it->second;
+        auto it = GetDatas().find(name);
+        return it == GetDatas().end() ? nullptr : it->second;
     }
 /************************************************************************************************************************/
 /************************************************************************************************************************/

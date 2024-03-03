@@ -43,16 +43,22 @@ namespace yuan
 
 	LogLevel::Level LogLevel::FromString(const std::string& str)
 	{
-#define XX(name)\
-	if(str == #name)\
+#define XX(level,str1)\
+	if(str == #str1)\
 	{\
-		return LogLevel::name;\
+		return LogLevel::level;\
 	}
-	XX(DEBUG);
-	XX(INFO);
-	XX(WARN);
-	XX(ERROR);
-	XX(FATAL);
+	XX(DEBUG,debug);
+	XX(INFO,info);
+	XX(WARN,warn);
+	XX(ERROR,error);
+	XX(FATAL,fatal);
+
+	XX(DEBUG,DEBUG);
+	XX(INFO,INFO);
+	XX(WARN,WARN);
+	XX(ERROR,ERROR);
+	XX(FATAL,FATAL);
 	return LogLevel::UNKONW;
 #undef XX
 	}
@@ -131,10 +137,7 @@ namespace yuan
 			char buf[64];
 			strftime(buf, sizeof(buf), m_format.c_str(), &tm);
 			os << buf;
-
-			os << event->getTime();
 		}
-
 	private:
 		std::string m_format;
 	};
@@ -190,6 +193,7 @@ namespace yuan
 		std::string m_string;
 	};
 
+	
 	/*********************************************** LogEvent *****************************************************************/
 	LogEvent::LogEvent(std::shared_ptr<Logger> logger, LogLevel::Level level, const char *file, int32_t line, uint32_t elapse,
 					   uint32_t thread_id, uint32_t fiber_id, uint64_t time)
@@ -202,6 +206,7 @@ namespace yuan
 	{
 		va_list al;
 		va_start(al, fmt);
+		format(fmt,al);
 		va_end(al);
 	}
 	void LogEvent::format(const char *fmt, va_list al)
@@ -232,9 +237,37 @@ namespace yuan
 		// m_formatter.reset(new LogFormatter("[%d]%T%t%T%F%T[%p]%T[%c]%T%f:%l%T%m%n"));
 	}
 
+	std::string Logger::toYamlString()
+	{
+		YAML::Node node;
+		node["name"] = m_name;
+		if(m_level != LogLevel::UNKONW)
+		{
+			node["level"] = LogLevel::ToString(m_level);
+		}
+		if(m_formatter)
+		{
+			node["formatter"] = m_formatter->getPattern();
+		}
+		for(auto& i : m_appenders)
+		{
+			node["appenders"].push_back(YAML::Load(i->toYamlString()));
+		}
+		std::stringstream ss;
+		ss << node;
+		return ss.str();
+	}
+
 	void Logger::setFormatter(LogFormatter::ptr val)
 	{
 		m_formatter = val;
+		for(auto& i : m_appenders)
+		{
+			if(!i->m_hasFormatter)
+			{
+				i->m_formatter = m_formatter;
+			}
+		}
 	}
 	void Logger::setFormatter(const std::string& val)
 	{
@@ -246,7 +279,8 @@ namespace yuan
 						<< std::endl;
 			return;
 		}
-		m_formatter = new_val;
+		//m_formatter = new_val;
+		setFormatter(new_val);
 	}
 	LogFormatter::ptr Logger::getFormatter()
 	{
@@ -261,7 +295,7 @@ namespace yuan
 			auto self = shared_from_this();
 			if(!m_appenders.empty())
 			{
-				for (const auto &i : m_appenders)
+				for (auto &i : m_appenders)
 				{
 					i->log(self, level, event);
 				}
@@ -300,7 +334,7 @@ namespace yuan
 	{
 		if (!appender->getFormatter())
 		{
-			appender->setFormatter(m_formatter);
+			appender->m_formatter = m_formatter;
 		}
 		m_appenders.push_back(appender);
 	}
@@ -322,13 +356,41 @@ namespace yuan
 
 	FileLogAppender::FileLogAppender(const std::string &filename) : m_filename(filename)
 	{
+		reopen();
 	}
 	void FileLogAppender::log(std::shared_ptr<Logger> logger, LogLevel::Level level, LogEvent::ptr event)
 	{
 		if (level >= m_level)
 		{
-			m_filestream << m_formatter->format(logger, level, event);
+			uint64_t now = event->getTime();
+			if(now >= (m_lastTime + 3))
+			{
+				reopen();
+				m_lastTime = now;
+			}
+			if(!m_formatter->format(m_filestream,logger,level,event))
+			{
+				std::cout << "error" << std::endl;
+			}
+			// m_filestream << m_formatter->format(logger, level, event);
 		}
+	}
+	std::string FileLogAppender::toYamlString()
+	{
+		YAML::Node node;
+		node["type"] = "FileLogAppender";
+		node["file"] = m_filename;	
+		if(m_level != LogLevel::UNKONW)
+		{
+			node["level"] = LogLevel::ToString(m_level);
+		}
+		if(m_hasFormatter && m_formatter)
+		{
+			node["formatter"] = m_formatter->getPattern();
+		}
+		std::stringstream ss;
+		ss << node;
+		return ss.str();
 	}
 	bool FileLogAppender::reopen()
 	{
@@ -336,7 +398,7 @@ namespace yuan
 		{
 			m_filestream.close();
 		}
-		m_filestream.open(m_filename);
+		m_filestream.open(m_filename,std::ios::app);
 		return !!m_filestream;
 	}
 	void StdoutLogAppender::log(std::shared_ptr<Logger> logger, LogLevel::Level level, LogEvent::ptr event)
@@ -346,10 +408,28 @@ namespace yuan
 			std::cout << m_formatter->format(logger, level, event);
 		}
 	}
+	std::string StdoutLogAppender::toYamlString()
+	{
+		YAML::Node node;
+		node["type"] = "StdoutLogAppender";
+		if(m_level != LogLevel::UNKONW)
+		{
+			node["level"] = LogLevel::ToString(m_level);
+		}
+
+		if(m_hasFormatter && m_formatter)
+		{
+			node["formatter"] = m_formatter->getPattern();
+		}
+		std::stringstream ss;
+		ss << node;
+		return ss.str();
+	}
 	LogFormatter::LogFormatter(const std::string &pattern) : m_pattern(pattern)
 	{
 		init();
 	}
+	
 	std::string LogFormatter::format(std::shared_ptr<Logger> logger, LogLevel::Level level, LogEvent::ptr event)
 	{
 		std::stringstream ss;
@@ -359,6 +439,15 @@ namespace yuan
 		}
 		return ss.str();
 	}
+	std::ostream &LogFormatter::format(std::ostream &ofs, std::shared_ptr<Logger> logger, LogLevel::Level level, LogEvent::ptr event)
+	{
+		for (auto &i : m_items)
+		{
+			i->format(ofs, logger, level, event);
+		}
+		return ofs;
+	}
+
 	// 	void LogFormatter::init()
 	// 	{
 	// 		//str	format	type
@@ -640,8 +729,11 @@ namespace yuan
 	{
 		m_root.reset(new Logger);
 		m_root->addAppender(LogAppender::ptr(new StdoutLogAppender));
+
+		m_loggers[m_root->m_name] = m_root;
 		init();
 	}
+
 	Logger::ptr LogManager::getLogger(const std::string &name)
 	{
 		auto it = m_loggers.find(name);
@@ -673,6 +765,7 @@ namespace yuan
 		LogLevel::Level level = LogLevel::UNKONW;
 		std::string formatter;
 		std::vector<LogAppenderDefine> appenders;
+		//LogDefine() {}
 		bool operator==(const LogDefine& oth) const
 		{
 			return oth.name == name && oth.level == level && oth.formatter ==formatter && oth.appenders == appenders;
@@ -709,52 +802,51 @@ namespace yuan
 				ld.formatter = n["formatter"].as<std::string>();
 			}
 
-			if(n["appenders"].IsDefined())
-				{
-				for(size_t x = 0;x<n["appenders"].size();++x)
+			if (n["appenders"].IsDefined())
+			{
+				for (size_t x = 0; x < n["appenders"].size(); ++x)
 				{
 					auto a = n["appenders"][x];
-					if(!a["type"].IsDefined())
+					if (!a["type"].IsDefined())
 					{
 						std::cout << "log config error: appender type is null " << n << std::endl;
 						continue;
 					}
 					std::string type = a["type"].as<std::string>();
 					LogAppenderDefine lad;
-					if(type == "FileLogAppender")
+					if (type == "FileLogAppender")
 					{
 						lad.type = 1;
-						if(!a["file"].IsDefined())///!n["file"].IsDefined()
+						if (!a["file"].IsDefined()) ///!n["file"].IsDefined()
 						{
 							std::cout << "log config error: fileappender file is null " << a << std::endl;
 							continue;
 						}
 						lad.file = a["file"].as<std::string>();
-						if(a["formatter"].IsDefined())
+						if (a["formatter"].IsDefined())
 						{
 							lad.formatter = a["formatter"].as<std::string>();
 						}
-						
 					}
-					else if(type == "StdLogAppender")
+					else if (type == "StdLogAppender")
 					{
 						lad.type = 2;
-						if(a["formatter"].IsDefined())
+						if (a["formatter"].IsDefined())
 						{
 							lad.formatter = a["formatter"].as<std::string>();
 						}
 					}
 					else
 					{
-						std::cout << "log config error: name is invalid " << n << std::endl;
+						std::cout << "log config error: name is invalid " << a << std::endl;
 						continue;
 					}
 					ld.appenders.push_back(lad);
 				}
-            }
-            return ld;
-        }
-    };
+			}
+			return ld;
+		}
+	};
     template <>
     class MyLexicalCast<LogDefine, std::string>
     {
@@ -766,7 +858,7 @@ namespace yuan
 			n["name"] = i.name;
 			if(i.level != LogLevel::UNKONW)
 			{
-				n["level"] = LogLevel::ToString();
+				n["level"] = LogLevel::ToString(i.level);
 			}
 			if(!i.formatter.empty())
 			{
@@ -785,27 +877,39 @@ namespace yuan
 				{
 					na["type"] = "StdLogAppender";
 				}
-				if(a.level)
+				if(a.level != LogLevel::UNKONW)
+				{
+					na["level"] = LogLevel::ToString(a.level);
+				}
+				if(!a.formatter.empty())
+				{
+					na["formatter"] = a.formatter;
+				}
+				n["appenders"].push_back(na);
 			}
+			std::stringstream ss;
+			ss << n;;
+			return ss.str();
         }
     };
 
-	yuan::ConfigVar<std::set<LogDefine>> g_log_defines = yuan::Config::Lookup("logs",std::set<LogDefine>(),"logs config");
+	yuan::ConfigVar<std::set<LogDefine> >::ptr g_log_defines = yuan::Config::Lookup("logs", std::set<LogDefine>(), "logs config");
+
 	struct LogIniter
 	{
 		//在main函数之前执行
 		LogIniter()
 		{
-			g_log_defines->addListener(0xF1E231,[](const std::set<LogDefine>& old_value,const std::set<LogDefine>& new_value)
+			g_log_defines->addListener([](const std::set<LogDefine>& old_value,const std::set<LogDefine>& new_value)
 			{
-				YUAN_LOG_NAME(YUAN_LOG_ROOT()) << "on_logger_conf_changed";
+				YUAN_LOG_INFO(YUAN_LOG_ROOT()) << "on_logger_conf_changed";
 				for(auto& i : new_value)
 				{
 					auto it = old_value.find(i);
 					yuan::Logger::ptr logger;
 					if(it == old_value.end())//新增logger
 					{
-						logger.reset(new yuan::Logger(i.name));
+						logger = YUAN_LOG_NAME(i.name);
 						
 					}
 					else
@@ -813,6 +917,10 @@ namespace yuan
 						if(!(i == *it))//新的和旧的不相等，修改logger  i是新的LogDefine
 						{
 							logger = YUAN_LOG_NAME(i.name);
+						}
+						else
+						{
+							continue;
 						}
 					}
 					logger->setLevel(i.level);
@@ -830,9 +938,27 @@ namespace yuan
 						}
 						else if(a.type == 2)
 						{
+
 							ap.reset(new StdoutLogAppender);
 						}
+						else
+						{
+							continue;
+						}
 						ap->setLevel(a.level);
+						if(!a.formatter.empty())
+						{
+							LogFormatter::ptr fmt(new LogFormatter(a.formatter));
+							if(!fmt->isError())
+							{
+								ap->setFormatter(fmt);
+							}
+							else
+							{
+								std::cout<< "log.name= " << i.name << " appender type= "<< a.type 
+										<< " formatter= " << a.formatter << " is invaild" << std::endl;
+							}
+						}
 						logger->addAppender(ap);
 					}
 				}
@@ -844,14 +970,26 @@ namespace yuan
 					if(it == new_value.end())//删除logger
 					{
 						auto logger = YUAN_LOG_NAME(i.name);
-						logger->setLevel((LogLevel::Level)100);//将级别设的很高
+						logger->setLevel((LogLevel::Level)0);
 						logger->clearAppender();
 					}
 				}
 			});
 		}
-	}
+	};
 	static LogIniter __log_init;
+
+	std::string LogManager::toYamlString()
+	{
+		YAML::Node node;
+		for(auto& i : m_loggers)
+		{
+			node.push_back(YAML::Load(i.second->toYamlString()));
+		}
+		std::stringstream ss;
+		ss << node;
+		return ss.str();
+	}
 	void LogManager::init()
 	{
 

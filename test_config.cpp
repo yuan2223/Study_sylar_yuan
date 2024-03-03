@@ -2,6 +2,7 @@
 #include "yuan_config.cpp"
 // #include " yuan_log.cpp"
 #include <yaml-cpp/yaml.h>
+#include<iostream>
 
 // yuan::ConfigVar<int>::ptr g_int_value_config = yuan::Config::Lookup("system.port", (int)8080, "system port");
 // yuan::ConfigVar<float>::ptr g_int_valuex_config = yuan::Config::Lookup("system.port", (float)8080, "system port");
@@ -172,7 +173,7 @@ void test_class()
     YUAN_LOG_INFO(YUAN_LOG_ROOT()) << #prefix << ": size= " << m.size();\
 }
 
-    g_person->addListener(10,[](const Person& old_value,const Person& new_value)
+    g_person->addListener([](const Person& old_value,const Person& new_value)
     {
         YUAN_LOG_INFO(YUAN_LOG_ROOT()) << "old_value= " << old_value.toString() << " new_value= " << new_value.toString();
     });
@@ -188,6 +189,24 @@ void test_class()
 
     XX_PM(g_person_map,"class.map after");
 }
+
+void test_logg()
+{
+    //std::cout<< "---------------------------------------------------------"<<std::endl;
+    static yuan::Logger::ptr system_log = YUAN_LOG_NAME("system");
+    YUAN_LOG_INFO(system_log) << "hello system" << std::endl;
+    std::cout << yuan::LoggerMgr::GetInstance()->toYamlString() << std::endl;
+    YAML::Node root = YAML::LoadFile("/home/bob/桌面/c++_code/study_sylar/log.yaml");
+    yuan::Config::LoadFromYaml(root);
+    std::cout << "=============" << std::endl;
+    std::cout << yuan::LoggerMgr::GetInstance()->toYamlString() << std::endl;
+    std::cout << "=============" << std::endl;
+    std::cout << root << std::endl;
+    YUAN_LOG_INFO(system_log) << "hello system" << std::endl;
+
+    system_log->setFormatter("%d - %m%n");
+    YUAN_LOG_INFO(system_log) << "hello system" << std::endl;
+}
 int main()
 {
     // g++ test_config.cpp -lyaml-cpp -o test_config
@@ -197,6 +216,7 @@ int main()
     // YUAN_LOG_INFO(YUAN_LOG_ROOT()) << g_float_value_config->getValue();
     // YUAN_LOG_INFO(YUAN_LOG_ROOT()) << g_float_value_config->toString();
     //test_config();
-    test_class();
+    //test_class();
+    test_logg();
     return 0;
 }

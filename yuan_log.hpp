@@ -75,6 +75,7 @@ namespace yuan
 
 		};
 		static const char *ToString(LogLevel::Level level);
+		static LogLevel::Level FromString(const std::string& str);
 	};
 
 	class LogEvent
@@ -141,6 +142,7 @@ namespace yuan
 		LogFormatter(const std::string &pattern);
 
 		std::string format(std::shared_ptr<Logger> logger, LogLevel::Level level, LogEvent::ptr event);
+		std::ostream& format(std::ostream& ofs, std::shared_ptr<Logger> logger, LogLevel::Level level, LogEvent::ptr event);
 
 	public:
 		class FormatItem
@@ -156,6 +158,7 @@ namespace yuan
 		void init();
 
 		bool isError() const {return m_error;}
+		const std::string getPattern() const {return m_pattern;}
 
 	private:
 		std::string m_pattern;
@@ -169,14 +172,28 @@ namespace yuan
 		日志输出器，用于将一个日志事件输出到对应的输出地。该类内部包含一个LogFormatter成员和一个log方法，日志事件先经过
 		LogFormatter格式化后再输出到对应的输出地。从这个类可以派生出不同的Appender类型，比如StdoutLogAppender和FileLogAppender，分别表示输出到终端和文件。
 		*/
+	friend class Logger;
 
 	public:
 		typedef std::shared_ptr<LogAppender> ptr;
 		virtual ~LogAppender() {}
 
 		virtual void log(std::shared_ptr<Logger> logger, LogLevel::Level level, LogEvent::ptr event) = 0;
+		virtual std::string toYamlString() = 0;
 
-		void setFormatter(LogFormatter::ptr val) { m_formatter = val; }
+		void setFormatter(LogFormatter::ptr val)
+		{
+			m_formatter = val;
+			if (m_formatter)
+			{
+				m_hasFormatter = true;
+			}
+			else
+			{
+				m_hasFormatter = false;
+			}
+		}
+
 		LogFormatter::ptr getFormatter() const { return m_formatter; }
 
 		LogLevel::Level getLevel() const { return m_level; }
@@ -184,6 +201,7 @@ namespace yuan
 
 	protected:
 		LogLevel::Level m_level;
+		bool m_hasFormatter = false;
 		LogFormatter::ptr m_formatter;
 	};
 
@@ -226,6 +244,8 @@ namespace yuan
 		void setFormatter(const std::string& val);
 		LogFormatter::ptr getFormatter();
 
+		std::string toYamlString();
+
 	private:
 		std::string m_name;						 // 日志名称
 		LogLevel::Level m_level;				 // 日志级别
@@ -240,6 +260,7 @@ namespace yuan
 	public:
 		typedef std::shared_ptr<StdoutLogAppender> ptr;
 		void log(std::shared_ptr<Logger> logger, LogLevel::Level level, LogEvent::ptr event) override;
+		std::string toYamlString() override;
 	};
 
 	// 输出到文件的Appender
@@ -250,12 +271,14 @@ namespace yuan
 		FileLogAppender(const std::string &filename);
 		void log(std::shared_ptr<Logger> logger, LogLevel::Level level, LogEvent::ptr event) override;
 
+		std::string toYamlString() override;
 		// 重新打开文件，打开成功返回true
 		bool reopen();
 
 	private:
 		std::string m_filename; // 输出到文件的文件名
 		std::ofstream m_filestream;
+		uint64_t m_lastTime = 0;
 	};
 
 	class LogManager
@@ -268,6 +291,8 @@ namespace yuan
 		Logger::ptr getLogger(const std::string &name);
 		void init();
 		Logger::ptr getRoot() const { return m_root; }
+
+		std::string toYamlString();
 
 	private:
 		std::map<std::string, Logger::ptr> m_loggers;

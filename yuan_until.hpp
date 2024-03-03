@@ -5,7 +5,7 @@
 namespace yuan
 {
     //获取线程ID
-    uint32_t GetThreadId();
+    pid_t GetThreadId();
 
     //获取协程ID
     uint32_t GetFiberId();

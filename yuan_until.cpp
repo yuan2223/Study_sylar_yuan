@@ -1,11 +1,13 @@
 #include "yuan_until.hpp"
+#include<sys/syscall.h>
+#include<unistd.h>
 
 namespace yuan
 {
    //获取线程ID
-    uint32_t GetThreadId()
+    pid_t GetThreadId()
     {
-        return 0;
+        return syscall(SYS_gettid);
     }
 
     //获取协程ID

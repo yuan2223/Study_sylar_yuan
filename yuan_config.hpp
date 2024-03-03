@@ -346,9 +346,12 @@ namespace yuan
         }
         std::string getTypeName() const override {return typeid(T).name();}
 
-        void addListener(uint64_t key,on_change_cb cb)
+        uint64_t addListener(on_change_cb cb)
         {
-            m_cbs[key] = cb;
+            static uint64_t s_fun_id = 0;
+            ++s_fun_id;
+            m_cbs[s_fun_id] = cb;
+            return s_fun_id;
         }
         void delListener(uint64_t key)
         {
@@ -380,8 +383,9 @@ namespace yuan
         static typename ConfigVar<T>::ptr Lookup(const std::string &name,
                                                  const T &default_value, const std::string &description = "")
         {
-            auto it = s_datas.find(name);//s_datas的数据类型std::unordered_map<std::string, ConfigVarBase::ptr>
-            if(it != s_datas.end())
+            //auto it = s_datas.find(name);//s_datas的数据类型std::unordered_map<std::string, ConfigVarBase::ptr>
+            auto it = GetDatas().find(name);
+            if(it != GetDatas().end())
             {
                 auto tmp = std::dynamic_pointer_cast<ConfigVar<T>>(it->second);
                 if(tmp)
@@ -408,16 +412,17 @@ namespace yuan
 
             //  保存在map中
             typename ConfigVar<T>::ptr v(new ConfigVar<T>(name, default_value, description));
-            s_datas[name] = v;
+            GetDatas()[name] = v;
             return v;
         }
 
         template <class T>
         static typename ConfigVar<T>::ptr Lookup(const std::string &name)
         {
-            auto it = s_datas.find(name);
+            //auto it = s_datas.find(name);
+            auto it = GetDatas().find(name);
             // 没有找到该类
-            if (it == s_datas.end())
+            if (it == GetDatas().end())
             {
                 return nullptr;
             }
