@@ -6,15 +6,15 @@
 
 int main()
 {
-    
+    //g++ test_log.cpp -lyaml-cpp -pthread -o test_log
     yuan::Logger::ptr logger(new yuan::Logger);
     logger->addAppender(yuan::LogAppender::ptr(new yuan::StdoutLogAppender));
 
-    yuan::FileLogAppender::ptr file_appender(new yuan::FileLogAppender("yuan_fiber/log.txt"));
-    // yuan::LogFormatter::ptr fmt(new yuan::LogFormatter("%d%T%p%T%m%n"));
-    // file_appender->setFormatter(fmt);
-    // file_appender->setLevel(yuan::LogLevel::ERROR);
-    // logger->addAppender(file_appender);
+    yuan::FileLogAppender::ptr file_appender(new yuan::FileLogAppender("study_sylar/log.txt"));
+    yuan::LogFormatter::ptr fmt(new yuan::LogFormatter("%d%T%p%T%m%n"));
+    file_appender->setFormatter(fmt);
+    file_appender->setLevel(yuan::LogLevel::ERROR);
+    logger->addAppender(file_appender);
 
    
 

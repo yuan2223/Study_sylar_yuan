@@ -1,6 +1,6 @@
 #include "yuan_config.hpp"
 #include "yuan_config.cpp"
-// #include " yuan_log.cpp"
+#include "yuan_log.cpp"
 #include <yaml-cpp/yaml.h>
 #include<iostream>
 

@@ -1,6 +1,7 @@
 #include"yuan_thread.hpp"
-#include"yuan_log.cpp"
+//#include"yuan_log.cpp"
 #include<pthread.h>
+#include"yuan_log.hpp"
 
 
 namespace yuan
@@ -38,7 +39,7 @@ namespace yuan
     //用于指示变量具有线程局部存储（TLS）的语义。这意味着每个线程都会拥有该变量的一份独立实例，每个线程对该变量的修改不会影响其他线程对同一变量的访问。
     static thread_local Thread* t_thread = nullptr;
     static thread_local std::string t_thread_name = "UNKNOW";
-    static yuan::Logger::ptr g_logger = YUAN_LOG_NAME("system");
+    static yuan::Logger::ptr g_logger1 = YUAN_LOG_NAME("system");
 
     Thread* Thread::GetThis()
     {
@@ -67,7 +68,7 @@ namespace yuan
         int rt = pthread_create(&m_thread,nullptr,&Thread::run,this);
         if(rt)
         {
-            YUAN_LOG_ERROR(g_logger) << "pthread_create thread fail,rt=" << rt << " name=" << name;
+            YUAN_LOG_ERROR(g_logger1) << "pthread_create thread fail,rt=" << rt << " name=" << name;
             throw std::logic_error("pthread_create error");
         }
         m_semaphore.wait();
@@ -88,7 +89,7 @@ namespace yuan
             int rt = pthread_join(m_thread,nullptr);
             if(rt)
             {
-                YUAN_LOG_ERROR(g_logger) << "pthread_join thread fail,rt=" << rt << " m_name= " << m_name;
+                YUAN_LOG_ERROR(g_logger1) << "pthread_join thread fail,rt=" << rt << " m_name= " << m_name;
                 throw std::logic_error("pthread_join error");
             }
             m_thread = 0;
@@ -99,6 +100,7 @@ namespace yuan
     {
         Thread* thread = (Thread*)arg;              //将传进来的参数转化为Thread类型的指针，这样就能访问Thread类的成员变量和方法
         t_thread = thread;          //将当前线程对象的成员变量t_thread(thread_local Thread*类型)设置为传入的Thread对象，这样在其他地方就可以使用 t_thread 来操作当前线程对象
+        t_thread_name = thread->m_name;
         thread->m_id = yuan::GetThreadId();
         //修改线程名称，接收的子符数最大为16
         pthread_setname_np(pthread_self(),thread->m_name.substr(0,15).c_str());

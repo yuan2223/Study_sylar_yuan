@@ -1,12 +1,13 @@
-#ifndef YUAN_THREAD_HPP__
-#define YUAN_THREAD_HPP__
+#ifndef __YUAN_THREAD_HPP__
+#define __YUAN_THREAD_HPP__
 //线程作为协程的容器，协程在线程上跑
 #include<thread>
 #include<functional>
 #include<memory>
 #include<semaphore.h>
 #include<stdint.h>
-#include"yuan_log.hpp"
+#include<atomic>
+//#include"yuan_log.hpp"
 
 
 namespace yuan
@@ -141,6 +142,42 @@ namespace yuan
         bool m_locked;
     };
 
+    /********************************************** Mutex ******************************************************/
+    class Mutex
+    {
+    public:
+        typedef ScopedLockImpl<Mutex> Lock;
+        Mutex()
+        {
+            pthread_mutex_init(&m_mutex,nullptr);
+        }
+        ~Mutex()
+        {
+            pthread_mutex_destroy(&m_mutex);
+        }
+        void lock()
+        {
+            pthread_mutex_lock(&m_mutex);
+        }
+        void unlock()
+        {
+            pthread_mutex_unlock(&m_mutex);
+        }
+
+    private:
+        pthread_mutex_t m_mutex;
+    };
+    //验证加锁与不加锁的区别
+    class NullMutex
+    {
+        typedef ScopedLockImpl<NullMutex> Lock;
+    public:
+        NullMutex() {}
+        ~NullMutex(){}
+        void lock() {}
+        void unlock(){}
+    };
+
     /********************************************** RWMutex ******************************************************/
     //读写锁
     //允许多个线程同时对共享资源进行读操作，但是只允许一个线程进行写操作。
@@ -175,6 +212,68 @@ namespace yuan
         }
     private:
         pthread_rwlock_t m_lock;//读写锁的变量，通过该变量控制多线程对共享资源的并发访问
+    };
+    class NULLRWMUTEX
+    {
+    public:
+        typedef ReadScopedLockImpl<NULLRWMUTEX> ReadLock;
+        typedef WriteScopedLockImpl<NULLRWMUTEX> WriteLock;
+        NULLRWMUTEX() {}
+        ~NULLRWMUTEX(){}
+        void rdlock(){}
+        void wrlock(){}
+        void unlock(){}
+    };
+    /********************************************** Spinlock ******************************************************/
+    //自旋锁，spinlock不会使线程阻塞，而是会在资源被其他线程占用时一直自旋等待，直到资源可用
+    class Spinlock
+    {
+    public:
+        typedef ScopedLockImpl<Spinlock> Lock;
+        Spinlock()
+        {
+            pthread_spin_init(&m_mutex,0);
+        }
+        ~Spinlock()
+        {
+            pthread_spin_destroy(&m_mutex);
+        }
+        void lock()
+        {
+            pthread_spin_lock(&m_mutex);
+        }
+        void unlock()
+        {
+            pthread_spin_unlock(&m_mutex);
+        }
+    private:
+        pthread_spinlock_t m_mutex;
+    };
+
+    /********************************************** CASLock ******************************************************/
+    class CASLock
+    {
+    public:
+        typedef ScopedLockImpl<CASLock> Lock;
+        CASLock()
+        {
+            m_mutex.clear();
+        }
+        ~CASLock(){}
+        void lock()
+        {
+            //原子操作，用于获取锁，如果获取成功，它会返回 false，并且循环退出
+            while(std::atomic_flag_test_and_set_explicit(&m_mutex,std::memory_order_acquire));
+        }
+        void unlock()
+        {
+            //清除 m_mutex 这个原子标志，使其状态为未占用。
+            std::atomic_flag_clear_explicit(&m_mutex,std::memory_order_relaxed);
+        }
+
+    private:
+        //volatile 并不提供线程安全性，指示编译器不要对变量进行优化，每次都直接从内存中读取或写入变量的值
+        volatile std::atomic_flag m_mutex;
     };
 
     /********************************************** Thread ******************************************************/

@@ -1,6 +1,7 @@
 #include "yuan_log.hpp"
 #include "yuan_config.hpp"
 
+
 namespace yuan
 {
 	const char *LogLevel::ToString(LogLevel::Level level)
@@ -231,6 +232,27 @@ namespace yuan
 	{
 		return m_event->getSS();
 	}
+
+	void LogAppender::setFormatter(LogFormatter::ptr val)
+	{
+		MutexType::Lock lock(m_mutex);
+		m_formatter = val;
+		if (m_formatter)
+		{
+			m_hasFormatter = true;
+		}
+		else
+		{
+			m_hasFormatter = false;
+		}
+	}
+	LogFormatter::ptr LogAppender::getFormatter()
+	{
+		MutexType::Lock lock(m_mutex);
+		return m_formatter;
+	}
+
+
 	Logger::Logger(const std::string &name) : m_name(name), m_level(LogLevel::DEBUG)
 	{
 		m_formatter.reset(new LogFormatter("%d{%Y-%m-%d %H:%M:%S}%T%t%T%F%T[%p]%T[%c]%T%f:%l%T%m%n"));
@@ -239,6 +261,7 @@ namespace yuan
 
 	std::string Logger::toYamlString()
 	{
+		MutexType::Lock lock(m_mutex);
 		YAML::Node node;
 		node["name"] = m_name;
 		if(m_level != LogLevel::UNKONW)
@@ -260,9 +283,11 @@ namespace yuan
 
 	void Logger::setFormatter(LogFormatter::ptr val)
 	{
+		MutexType::Lock lock(m_mutex);
 		m_formatter = val;
 		for(auto& i : m_appenders)
 		{
+			MutexType::Lock ll(i->m_mutex);
 			if(!i->m_hasFormatter)
 			{
 				i->m_formatter = m_formatter;
@@ -284,6 +309,7 @@ namespace yuan
 	}
 	LogFormatter::ptr Logger::getFormatter()
 	{
+		MutexType::Lock lock(m_mutex);
 		return m_formatter;
 	}
 
@@ -293,6 +319,7 @@ namespace yuan
 		if (level >= m_level)
 		{
 			auto self = shared_from_this();
+			MutexType::Lock lock(m_mutex);
 			if(!m_appenders.empty())
 			{
 				for (auto &i : m_appenders)
@@ -332,14 +359,17 @@ namespace yuan
 
 	void Logger::addAppender(LogAppender::ptr appender)
 	{
+		MutexType::Lock lock(m_mutex);
 		if (!appender->getFormatter())
 		{
+			MutexType::Lock ll(appender->m_mutex);
 			appender->m_formatter = m_formatter;
 		}
 		m_appenders.push_back(appender);
 	}
 	void Logger::delAppender(LogAppender::ptr appender)
 	{
+		MutexType::Lock lock(m_mutex);
 		for (auto it = m_appenders.begin(); it != m_appenders.end(); ++it)
 		{
 			if (*it == appender)
@@ -351,6 +381,7 @@ namespace yuan
 	}
 	void Logger::clearAppender()
 	{
+		MutexType::Lock lock(m_mutex);
 		m_appenders.clear();
 	}
 
@@ -362,6 +393,7 @@ namespace yuan
 	{
 		if (level >= m_level)
 		{
+			MutexType::Lock lock(m_mutex);
 			uint64_t now = event->getTime();
 			if(now >= (m_lastTime + 3))
 			{
@@ -377,6 +409,7 @@ namespace yuan
 	}
 	std::string FileLogAppender::toYamlString()
 	{
+		MutexType::Lock lock(m_mutex);
 		YAML::Node node;
 		node["type"] = "FileLogAppender";
 		node["file"] = m_filename;	
@@ -394,22 +427,26 @@ namespace yuan
 	}
 	bool FileLogAppender::reopen()
 	{
+		MutexType::Lock lock(m_mutex);
 		if (m_filestream)
 		{
 			m_filestream.close();
 		}
 		m_filestream.open(m_filename,std::ios::app);
 		return !!m_filestream;
+		//return FSUtil::OpenForWrite(m_filestream,m_filename,std::ios::app)
 	}
 	void StdoutLogAppender::log(std::shared_ptr<Logger> logger, LogLevel::Level level, LogEvent::ptr event)
 	{
 		if (level >= m_level)
 		{
+			MutexType::Lock lock(m_mutex);
 			std::cout << m_formatter->format(logger, level, event);
 		}
 	}
 	std::string StdoutLogAppender::toYamlString()
 	{
+		MutexType::Lock lock(m_mutex);
 		YAML::Node node;
 		node["type"] = "StdoutLogAppender";
 		if(m_level != LogLevel::UNKONW)
@@ -736,6 +773,7 @@ namespace yuan
 
 	Logger::ptr LogManager::getLogger(const std::string &name)
 	{
+		MutexType::Lock lock(m_mutex);
 		auto it = m_loggers.find(name);
 		if(it != m_loggers.end())
 		{
@@ -981,6 +1019,7 @@ namespace yuan
 
 	std::string LogManager::toYamlString()
 	{
+		MutexType::Lock lock(m_mutex);
 		YAML::Node node;
 		for(auto& i : m_loggers)
 		{

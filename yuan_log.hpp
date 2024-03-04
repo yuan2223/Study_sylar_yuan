@@ -23,6 +23,8 @@
 #include <functional>
 #include "yuan_until.cpp"
 #include "yuan_singleton.hpp"
+#include "yuan_thread.hpp"
+
 
 
 
@@ -176,25 +178,15 @@ namespace yuan
 
 	public:
 		typedef std::shared_ptr<LogAppender> ptr;
+		typedef yuan::Mutex MutexType;
 		virtual ~LogAppender() {}
 
 		virtual void log(std::shared_ptr<Logger> logger, LogLevel::Level level, LogEvent::ptr event) = 0;
 		virtual std::string toYamlString() = 0;
 
-		void setFormatter(LogFormatter::ptr val)
-		{
-			m_formatter = val;
-			if (m_formatter)
-			{
-				m_hasFormatter = true;
-			}
-			else
-			{
-				m_hasFormatter = false;
-			}
-		}
-
-		LogFormatter::ptr getFormatter() const { return m_formatter; }
+		void setFormatter(LogFormatter::ptr val);
+		LogFormatter::ptr getFormatter();
+		
 
 		LogLevel::Level getLevel() const { return m_level; }
 		void setLevel(LogLevel::Level val) { m_level = val; }
@@ -203,6 +195,7 @@ namespace yuan
 		LogLevel::Level m_level;
 		bool m_hasFormatter = false;
 		LogFormatter::ptr m_formatter;
+		MutexType m_mutex;
 	};
 
 	class Logger : public std::enable_shared_from_this<Logger> // 把自己作为指针传入函数
@@ -214,6 +207,7 @@ namespace yuan
 		friend class LogManager;
 	public:
 		typedef std::shared_ptr<Logger> ptr;
+		typedef yuan::Mutex MutexType;
 		Logger(const std::string &name = "root");
 
 		void log(LogLevel::Level level, LogEvent::ptr event);
@@ -252,6 +246,7 @@ namespace yuan
 		std::list<LogAppender::ptr> m_appenders; // Appender集合
 		LogFormatter::ptr m_formatter;
 		Logger::ptr m_root;
+		MutexType m_mutex;
 	};
 
 	// 输出到控制台的Appender
@@ -287,6 +282,7 @@ namespace yuan
 		日志器管理类，单例模式，用于统一管理所有的日志器，提供日志器的创建与获取方法。LogManager自带一个root Logger，用于为日志模块提供一个初始可用的日志器。
 		*/
 	public:
+		typedef yuan::Mutex MutexType;
 		LogManager();
 		Logger::ptr getLogger(const std::string &name);
 		void init();
@@ -297,6 +293,7 @@ namespace yuan
 	private:
 		std::map<std::string, Logger::ptr> m_loggers;
 		Logger::ptr m_root;
+		MutexType m_mutex;
 	};
 
 	typedef yuan::Singleton<LogManager> LoggerMgr;

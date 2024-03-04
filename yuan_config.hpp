@@ -13,7 +13,11 @@
 #include<unordered_map>
 #include<unordered_set>
 #include<functional>
+
+#include "yuan_thread.hpp"
 #include "yuan_log.hpp"
+#include "yuan_until.hpp"
+
 namespace yuan
 {
     class ConfigVarBase
