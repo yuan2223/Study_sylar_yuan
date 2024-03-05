@@ -294,6 +294,7 @@ namespace yuan
     class ConfigVar : public ConfigVarBase
     {
     public:
+        typedef RWMutex RWMutexType;
         typedef std::shared_ptr<ConfigVar> ptr;
         //当一个配置更改时，知道原来的值和新的值是什么
         typedef std::function<void (const T& old_value,const T& new_value)> on_change_cb;
@@ -308,6 +309,7 @@ namespace yuan
             {
                 // 将非字符串数据转化成字符串数据
                 //return boost::lexical_cast<std::string>(m_val);
+                RWMutexType::ReadLock lock(m_mutex);
                 return ToStr()(m_val);
             }
             catch (std::exception &e)
@@ -334,44 +336,56 @@ namespace yuan
             return false;
         }
 
-        const T getValue() const { return m_val; }
+        const T getValue() 
+        { 
+            RWMutexType::ReadLock lock(m_mutex);
+            return m_val; 
+        }
         void setValue(const T &v)
         {
-            if(v == m_val)//原值等于新的值，没有变化
             {
-                return;
-            }
-            for(auto& i:m_cbs)
-            {
-                i.second(m_val,v);
-            }
+                RWMutexType::ReadLock lock(m_mutex);
+                if (v == m_val) // 原值等于新的值，没有变化
+                {
+                    return;
+                }
+                for (auto &i : m_cbs)
+                {
+                    i.second(m_val, v);
+                }
+            }//超出作用域调用析构函数解锁
+            RWMutexType::WriteLock lock(m_mutex);
             m_val = v;
-
         }
         std::string getTypeName() const override {return typeid(T).name();}
 
         uint64_t addListener(on_change_cb cb)
         {
             static uint64_t s_fun_id = 0;
+            RWMutexType::WriteLock lock(m_mutex);
             ++s_fun_id;
             m_cbs[s_fun_id] = cb;
             return s_fun_id;
         }
         void delListener(uint64_t key)
         {
+            RWMutexType::WriteLock lock(m_mutex);
             m_cbs.erase(key);
         }
         on_change_cb getListener(uint64_t key)
         {
+            RWMutexType::ReadLock lock(m_mutex);
             auto it = m_cbs.find(key);
             return it == m_cbs.end() ? nullptr : it->second;
         }
         void clearListener()
         {
+            RWMutexType::WriteLock lock(m_mutex);
             m_cbs.clear();
         }
 
     private:
+        RWMutexType m_mutex;
         T m_val;
         //变更回调函数组,function没有比较函数，当两个key相等时，两个function是一样的,要求key是唯一的
         std::map<uint64_t,on_change_cb> m_cbs;
@@ -381,12 +395,14 @@ namespace yuan
     {
     public:
         typedef std::unordered_map<std::string, ConfigVarBase::ptr> ConfigVarMap;
+        typedef RWMutex RWMutexType;
 
         template <class T>
         //  告诉编译器这是类型名
         static typename ConfigVar<T>::ptr Lookup(const std::string &name,
                                                  const T &default_value, const std::string &description = "")
         {
+            RWMutexType::WriteLock lock(GetMutex());
             //auto it = s_datas.find(name);//s_datas的数据类型std::unordered_map<std::string, ConfigVarBase::ptr>
             auto it = GetDatas().find(name);
             if(it != GetDatas().end())
@@ -414,7 +430,7 @@ namespace yuan
                 throw std::invalid_argument(name);
             }
 
-            //  保存在map中
+            //没有的话创建一个，保存在map中
             typename ConfigVar<T>::ptr v(new ConfigVar<T>(name, default_value, description));
             GetDatas()[name] = v;
             return v;
@@ -423,6 +439,7 @@ namespace yuan
         template <class T>
         static typename ConfigVar<T>::ptr Lookup(const std::string &name)
         {
+            RWMutexType::ReadLock lock(GetMutex());
             //auto it = s_datas.find(name);
             auto it = GetDatas().find(name);
             // 没有找到该类
@@ -436,14 +453,22 @@ namespace yuan
 
         static void LoadFromYaml(const YAML::Node &root);
         static ConfigVarBase::ptr LookupBase(const std::string& name);
-        
-
+        //查看s_datas的数据
+        static void Visit(std::function<void(ConfigVarBase::ptr)> cb);
     private:
         static ConfigVarMap& GetDatas()
         {
             static ConfigVarMap s_datas;
             return s_datas;
         }
+
+        static RWMutexType& GetMutex()
+        {
+            static RWMutexType s_mutex;
+            return s_mutex;
+        }
+        //这个Config类调用时设为全局变量，全局变量的初始化没有严格的顺序,
+        //如果将Config的成员变量不这样（设为静态成员），如果某个方法在调用成员变量时，这个变量还没有初始化，会出现内存错误
     };
 
 }

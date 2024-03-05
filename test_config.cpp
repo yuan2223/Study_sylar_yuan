@@ -192,7 +192,7 @@ void test_class()
 
 void test_logg()
 {
-    //std::cout<< "---------------------------------------------------------"<<std::endl;
+    std::cout<< "---------------------------------------------------------"<<std::endl;
     static yuan::Logger::ptr system_log = YUAN_LOG_NAME("system");
     YUAN_LOG_INFO(system_log) << "hello system" << std::endl;
     std::cout << yuan::LoggerMgr::GetInstance()->toYamlString() << std::endl;
@@ -202,14 +202,17 @@ void test_logg()
     std::cout << yuan::LoggerMgr::GetInstance()->toYamlString() << std::endl;
     std::cout << "=============" << std::endl;
     std::cout << root << std::endl;
+    std::cout << "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" << std::endl;
     YUAN_LOG_INFO(system_log) << "hello system" << std::endl;
+    YUAN_LOG_INFO(YUAN_LOG_ROOT()) << " hello root" << std::endl;
+   
 
     system_log->setFormatter("%d - %m%n");
     YUAN_LOG_INFO(system_log) << "hello system" << std::endl;
 }
 int main()
 {
-    // g++ test_config.cpp -lyaml-cpp -o test_config
+    // g++ test_config.cpp -lyaml-cpp -lpthread -o test_config
 
     // YUAN_LOG_INFO(YUAN_LOG_ROOT()) << g_int_value_config->getValue();
     // YUAN_LOG_INFO(YUAN_LOG_ROOT()) << g_int_value_config->toString();
@@ -218,5 +221,15 @@ int main()
     //test_config();
     //test_class();
     test_logg();
+    std::cout << "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" << std::endl;
+    std::cout << "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" << std::endl;
+    std::cout << "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" << std::endl;
+    // yuan::Config::Visit([](yuan::ConfigVarBase::ptr var) 
+    // {
+    //     YUAN_LOG_INFO(YUAN_LOG_ROOT()) << "name=" << var->getName() 
+    //                                 << "    description=" << var->getDescriptioin()
+    //                                 << "    typename=" << var->getTypeName()
+    //                                 << "    value=" << var->toString();
+    // });
     return 0;
 }

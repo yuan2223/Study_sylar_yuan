@@ -288,6 +288,7 @@ namespace yuan
 		for(auto& i : m_appenders)
 		{
 			MutexType::Lock ll(i->m_mutex);
+			//MutexType::Lock lock(m_mutex);
 			if(!i->m_hasFormatter)
 			{
 				i->m_formatter = m_formatter;
@@ -363,6 +364,7 @@ namespace yuan
 		if (!appender->getFormatter())
 		{
 			MutexType::Lock ll(appender->m_mutex);
+			//MutexType::Lock lock(appender->m_mutex);
 			appender->m_formatter = m_formatter;
 		}
 		m_appenders.push_back(appender);
@@ -393,13 +395,13 @@ namespace yuan
 	{
 		if (level >= m_level)
 		{
-			MutexType::Lock lock(m_mutex);
 			uint64_t now = event->getTime();
 			if(now >= (m_lastTime + 3))
 			{
 				reopen();
 				m_lastTime = now;
 			}
+			MutexType::Lock lock(m_mutex);
 			if(!m_formatter->format(m_filestream,logger,level,event))
 			{
 				std::cout << "error" << std::endl;
@@ -866,7 +868,7 @@ namespace yuan
 							lad.formatter = a["formatter"].as<std::string>();
 						}
 					}
-					else if (type == "StdLogAppender")
+					else if (type == "StdoutLogAppender")
 					{
 						lad.type = 2;
 						if (a["formatter"].IsDefined())

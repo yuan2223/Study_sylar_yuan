@@ -178,7 +178,7 @@ namespace yuan
 
 	public:
 		typedef std::shared_ptr<LogAppender> ptr;
-		typedef yuan::Mutex MutexType;
+		typedef yuan::Spinlock MutexType;
 		virtual ~LogAppender() {}
 
 		virtual void log(std::shared_ptr<Logger> logger, LogLevel::Level level, LogEvent::ptr event) = 0;
@@ -207,7 +207,7 @@ namespace yuan
 		friend class LogManager;
 	public:
 		typedef std::shared_ptr<Logger> ptr;
-		typedef yuan::Mutex MutexType;
+		typedef yuan::Spinlock MutexType;
 		Logger(const std::string &name = "root");
 
 		void log(LogLevel::Level level, LogEvent::ptr event);
@@ -282,7 +282,7 @@ namespace yuan
 		日志器管理类，单例模式，用于统一管理所有的日志器，提供日志器的创建与获取方法。LogManager自带一个root Logger，用于为日志模块提供一个初始可用的日志器。
 		*/
 	public:
-		typedef yuan::Mutex MutexType;
+		typedef yuan::Spinlock MutexType;
 		LogManager();
 		Logger::ptr getLogger(const std::string &name);
 		void init();
@@ -299,5 +299,4 @@ namespace yuan
 	typedef yuan::Singleton<LogManager> LoggerMgr;
 
 }
-#endif // !__YUAN_LOG_H__
-
+#endif 
