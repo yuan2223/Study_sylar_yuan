@@ -116,6 +116,15 @@ namespace yuan
 		FiberIdFormatItem(const std::string &str = "") {}
 		void format(std::ostream &os, std::shared_ptr<Logger> logger, LogLevel::Level level, LogEvent::ptr event) override
 		{
+			os << event->getThreadName();
+		}
+	};
+	class ThreadNameFormatItem : public LogFormatter::FormatItem
+	{
+	public:
+		ThreadNameFormatItem(const std::string &str = "") {}
+		void format(std::ostream &os, std::shared_ptr<Logger> logger, LogLevel::Level level, LogEvent::ptr event) override
+		{
 			os << event->get_FiberId();
 		}
 	};
@@ -197,9 +206,9 @@ namespace yuan
 	
 	/*********************************************** LogEvent *****************************************************************/
 	LogEvent::LogEvent(std::shared_ptr<Logger> logger, LogLevel::Level level, const char *file, int32_t line, uint32_t elapse,
-					   uint32_t thread_id, uint32_t fiber_id, uint64_t time)
+					   uint32_t thread_id, uint32_t fiber_id, uint64_t time,const std::string& thread_name)
 		: m_logger(logger), m_level(level), m_file(file), m_line(line), m_elapse(elapse), m_threadId(thread_id),
-		  m_fiberId(fiber_id), m_time(time)
+		  m_fiberId(fiber_id), m_time(time),m_threadName(thread_name)
 	{
 	}
 
@@ -255,7 +264,7 @@ namespace yuan
 
 	Logger::Logger(const std::string &name) : m_name(name), m_level(LogLevel::DEBUG)
 	{
-		m_formatter.reset(new LogFormatter("%d{%Y-%m-%d %H:%M:%S}%T%t%T%F%T[%p]%T[%c]%T%f:%l%T%m%n"));
+		m_formatter.reset(new LogFormatter("%d{%Y-%m-%d %H:%M:%S}%T%t%T%N%T%F%T[%p]%T[%c]%T%f:%l%T%m%n"));
 		// m_formatter.reset(new LogFormatter("[%d]%T%t%T%F%T[%p]%T[%c]%T%f:%l%T%m%n"));
 	}
 
@@ -720,8 +729,8 @@ namespace yuan
 			vec.push_back(std::make_tuple(nstr, "", 0));
 		}
 		static std::map<std::string, std::function<FormatItem::ptr(const std::string &str)>> s_format_items = {
-#define XX(str, C)                                                               \
-	{                                                                            \
+#define XX(str, C)\
+	{\
 		#str, [](const std::string &fmt) { return FormatItem::ptr(new C(fmt)); } \
 	}
 
@@ -736,6 +745,7 @@ namespace yuan
 			XX(l, LineFormatItem),	   // l:行号
 			XX(T, TabFormatItem),	   // T:Tab
 			XX(F, FiberIdFormatItem),  // F:协程id
+			XX(N, ThreadNameFormatItem),  // N:线程名称
 #undef XX
 		};
 

@@ -23,7 +23,9 @@
 #include <functional>
 #include "yuan_until.cpp"
 #include "yuan_singleton.hpp"
-#include "yuan_thread.hpp"
+
+// #include "yuan_thread.hpp"
+
 
 
 
@@ -32,7 +34,7 @@
 	if(logger->getLevel() <= level) \
 		yuan::LogEventWrap(yuan::LogEvent::ptr(new yuan::LogEvent(logger,level,\
 							__FILE__,__LINE__,0,yuan::GetThreadId(),\
-							yuan::GetFiberId(),time(0)))).getSS()
+							yuan::GetFiberId(),time(0),yuan::Thread::GetName()))).getSS()
 
 #define YUAN_LOG_DEBUG(logger) YUAN_LOG_LEVEL(logger,yuan::LogLevel::DEBUG)
 #define YUAN_LOG_INFO(logger) YUAN_LOG_LEVEL(logger,yuan::LogLevel::INFO)
@@ -45,7 +47,7 @@
     if(logger->getLevel() <= level) \
         yuan::LogEventWrap(yuan::LogEvent::ptr(new yuan::LogEvent(logger, level, \
                         __FILE__, __LINE__, 0, yuan::GetThreadId(),\
-                yuan::GetFiberId(), time(0)))).getEvent()->format(fmt, __VA_ARGS__)
+                yuan::GetFiberId(), time(0),yuan::Thread::GetName()))).getEvent()->format(fmt, __VA_ARGS__)
 
 
 #define YUAN_LOG_FMT_DEBUG(logger,fmt, ...) YUAN_LOG_FMT_LEVEL(logger,yuan::LogLevel::Level::DEBUG,fmt,__VA_ARGS__)
@@ -88,7 +90,7 @@ namespace yuan
 	public:
 		typedef std::shared_ptr<LogEvent> ptr;
 		LogEvent(std::shared_ptr<Logger> ptr, LogLevel::Level level, const char *file, int32_t line, uint32_t elapse,
-				 uint32_t thread_id, uint32_t fiber_id, uint64_t time);
+				 uint32_t thread_id, uint32_t fiber_id, uint64_t time,const std::string& thread_name);
 
 		const char *getFile() const { return m_file; }
 		uint32_t get_Elapse() const { return m_line; }
@@ -97,6 +99,7 @@ namespace yuan
 		uint32_t get_FiberId() const { return m_fiberId; }
 		uint64_t getTime() const { return m_time; }
 		std::string getContent() const { return m_ss.str(); }
+		const std::string& getThreadName() const {return m_threadName;};
 		std::stringstream &getSS() { return m_ss; }
 		std::shared_ptr<Logger> getLogger() const { return m_logger; }
 		LogLevel::Level getLevel() const { return m_level; }
@@ -112,6 +115,7 @@ namespace yuan
 		uint32_t m_fiberId = 0;		  // 协程ido
 		uint64_t m_time = 0;		  // 时间戳
 		std::stringstream m_ss;
+		std::string m_threadName;
 
 		std::shared_ptr<Logger> m_logger;
 		LogLevel::Level m_level;

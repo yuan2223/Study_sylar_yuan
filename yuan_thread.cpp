@@ -1,7 +1,7 @@
 #include"yuan_thread.hpp"
 //#include"yuan_log.cpp"
 #include<pthread.h>
-#include"yuan_log.hpp"
+#include "yuan_log.hpp"
 
 
 namespace yuan
@@ -36,7 +36,8 @@ namespace yuan
     }
     /********************************************** Thread ******************************************************/
 
-    //用于指示变量具有线程局部存储（TLS）的语义。这意味着每个线程都会拥有该变量的一份独立实例，每个线程对该变量的修改不会影响其他线程对同一变量的访问。
+    //线程局部变量： 每个线程都会拥有该变量的一份独立实例，每个线程对该变量的修改不会影响其他线程对同一变量的访问。
+    //线程局部变量的生命周期与线程的生命周期相对应。
     static thread_local Thread* t_thread = nullptr;
     static thread_local std::string t_thread_name = "UNKNOW";
     static yuan::Logger::ptr g_logger1 = YUAN_LOG_NAME("system");
