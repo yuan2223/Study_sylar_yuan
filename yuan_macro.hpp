@@ -2,7 +2,7 @@
 #define __YUAN_MACRO_HPP__
 
 #include<string.h>
-#include<string.h>
+#include<cassert>
 #include"yuan_until.hpp"
 #include "yuan_log.hpp"
 

@@ -129,7 +129,7 @@ namespace yuan
     void Fiber::swapOut()
     {
         SetThis(t_threadFiber.get());
-        if(swapcontext(&m_ctx,&t_threadFiber->m_ctx))
+        if(swapcontext(&m_ctx,&t_threadFiber->m_ctx))//把子协程的上下文保存在自己的m_ctx中，同时t_threadFiber获得主协程的上下文
         {
              YUAN_ASSERT2(false,"swapcontext");
         }

@@ -1,4 +1,15 @@
 #include<iostream>
+// #include <coroutine>
+
+
+void func()
+{
+    int i = 0;
+    while(1)
+    {
+        
+    }
+}
 int main()
 {
     double a = 4.0;

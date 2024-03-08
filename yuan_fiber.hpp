@@ -35,6 +35,9 @@ namespace yuan
         void swapOut();
 
         uint64_t getId() const {return m_id;}
+
+        //返回当前状态
+        State getState() const {return m_state;}
     public:
         //设置当前协程
         static void SetThis(Fiber* f);
