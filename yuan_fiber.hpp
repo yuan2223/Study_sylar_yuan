@@ -8,8 +8,10 @@
 
 namespace yuan
 {
+    class Scheduler;
     class Fiber:public std::enable_shared_from_this<Fiber>
     {
+    friend Scheduler;
     public:
        typedef std::shared_ptr<Fiber> ptr;
         enum State
@@ -19,20 +21,27 @@ namespace yuan
             EXEC,
             TERM,
             READY,
-            EXCEPT
+            EXCEPT          //结束
         };
     private:
         Fiber();
     public:
-        Fiber(std::function<void()> cb,size_t stacksize = 0);
+        Fiber(std::function<void()> cb,size_t stacksize = 0,bool use_caller = false);
         ~Fiber();
 
         //重置协程状态和入口函数,能重置的协程状态只能为（INIT，TERM）
         void reset(std::function<void()> cb);  
         //切换到当前协程执行
         void swapIn();
+
         //当前协程切换到后台
         void swapOut();
+
+        //将当前线程切换为执行状态，执行的为当前线程的主协程
+        void call();
+
+        //将当前线程切换到后台，执行为该协程，返回到线程的主协程
+        void back();
 
         uint64_t getId() const {return m_id;}
 
@@ -42,7 +51,7 @@ namespace yuan
         //设置当前协程
         static void SetThis(Fiber* f);
 
-        //返回当前协程
+        //返回当前正在执行的协程
         static Fiber::ptr GetThis();
         
 
@@ -57,6 +66,7 @@ namespace yuan
 
         //
         static void MainFunc();
+        static void CallerMainFunc();
 
         static uint64_t GetFiberId();
         

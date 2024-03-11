@@ -5,7 +5,7 @@
 #include<vector>
 #include<list>
 #include"yuan_fiber.hpp"
-#include "yuan_thread.hpp"
+//#include "yuan_thread.hpp"
 
 namespace yuan
 {
@@ -20,12 +20,18 @@ namespace yuan
 
         const std::string& getName() const {return m_name;}
 
+        //获取当前线程调度器的指针
         static Scheduler* GetThis();
+
+        //获取当前线程的主协程
         static Fiber* GetMainFiber();
 
         void start();
+
+        //停止调度器，等所有调度任务都执行完在返回
         void stop();
 
+        //添加调度任务，可以是协程对象，也可以是函数指针
         template<class FiberOrCb>
         void schedule(FiberOrCb fc,int thread = -1)
         {
@@ -58,10 +64,16 @@ namespace yuan
         }
     
     protected:
+        //通知协程调度器有任务
         virtual void tickle();
+
+        //返回是否可以停止
         virtual bool stopping();
+
+        //没有任务时执行idle协程
         virtual void idle();
 
+        //返回当前协程调度器
         void setThis();
         void run();
 
@@ -70,10 +82,10 @@ namespace yuan
         bool scheduleNoLock(FiberOrCb fc,int thread)
         {
             bool need_tickle = m_fibers.empty();//计划要执行的协程是否为空
-            FiberAndThread ft(fc,thread);
+            ScheduleTask ft(fc,thread);         //创建任务，协程或者回调函数
             if(ft.fiber || ft.cb)
             {
-                m_fibers.push_back(ft);
+                m_fibers.push_back(ft);//加入到任务队列
             }
             return need_tickle;
         }
@@ -112,8 +124,8 @@ namespace yuan
     private:
         MutexType m_mutex;
         std::vector<Thread::ptr> m_threads;
-        std::list<ScheduleTask> m_fibers; //协程的消息队列,计划要执行的协程
-        Fiber::ptr m_rootFiber;
+        std::list<ScheduleTask> m_fibers; //协程的任务队列
+        Fiber::ptr m_rootFiber;           //ues_caller为true时，调度器所在线程的调度协程
         std::string m_name;
     protected:
         std::vector<int> m_threadIds;       //所有的线程ID
@@ -122,7 +134,7 @@ namespace yuan
         size_t m_idleThreadCount = 0;       //空闲线程数量
         bool m_stopping = true;             //还没有启动
         bool m_autoStop = false;;
-        int m_rootThread = 0;               //主线程的ID，指的是scheduler线程
+        int m_rootThread = 0;               //ues_caller为true时，调度器所在线程的id
     };
 }
-#endif;
+#endif

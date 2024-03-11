@@ -5,12 +5,14 @@
 
 namespace yuan
 {
+    
+
     static Logger::ptr g_logger = YUAN_LOG_NAME("system");
     static std::atomic<uint64_t> s_fiber_id {0};
     static std::atomic<uint64_t> s_fiber_count {0};
 
-    static thread_local Fiber* t_fiber = nullptr;   //线程里面返回当前协程,主协程
-    static thread_local Fiber::ptr t_threadFiber = nullptr;
+    static thread_local Fiber* t_fiber = nullptr;   //线程局部变量，当前线程正在运行的协程
+    static thread_local Fiber::ptr t_threadFiber = nullptr;//当前线程的主协程
     
     static ConfigVar<uint32_t>::ptr g_fiber_stack_size = Config::Lookup<uint32_t>("fiber.stack_size",1024*1024,"fiber stack size");
     class MallocStackAllocator
@@ -49,10 +51,10 @@ namespace yuan
         }
         ++s_fiber_count;
 
-        YUAN_LOG_DEBUG(g_logger) << "Fiber::Fiber() function";
+        YUAN_LOG_DEBUG(g_logger) << "Fiber::Fiber";
     }
     //每个子协程都有独立的占空间
-    Fiber::Fiber(std::function<void()> cb,size_t stacksize):m_id(++s_fiber_id),m_cb(cb)
+    Fiber::Fiber(std::function<void()> cb,size_t stacksize,bool use_caller):m_id(++s_fiber_id),m_cb(cb)
     {
         ++s_fiber_count;
         m_stacksize = stacksize ? stacksize : g_fiber_stack_size->getValue();
@@ -67,7 +69,14 @@ namespace yuan
         m_ctx.uc_stack.ss_sp = m_stack;
         m_ctx.uc_stack.ss_size = m_stacksize;
 
-        makecontext(&m_ctx,&Fiber::MainFunc,0);
+        if(!use_caller)
+        {
+            makecontext(&m_ctx,&Fiber::MainFunc,0);
+        }
+        else
+        {
+            makecontext(&m_ctx,&Fiber::CallerMainFunc,0);
+        }
         YUAN_LOG_DEBUG(g_logger) << "Fiber::Fiber id=" << m_id;
     }
     Fiber::~Fiber()
@@ -112,6 +121,27 @@ namespace yuan
         m_state = INIT;
     }
 
+
+    void Fiber::call()
+    {
+        //YUAN_LOG_INFO(g_logger) << "in clall()";
+        SetThis(this);
+        m_state = EXEC;
+        if(swapcontext(&t_threadFiber->m_ctx,&m_ctx))
+        {
+            YUAN_ASSERT2(false,"swapcontext");
+        }
+    }
+
+    void Fiber::back()
+    {
+        SetThis(t_threadFiber.get());
+        if(swapcontext(&m_ctx,&t_threadFiber->m_ctx))
+        {
+            YUAN_ASSERT2(false,"swapcontext");
+        }
+    }
+
     //切换到当前协程执行
     void Fiber::swapIn()
     {
@@ -119,7 +149,7 @@ namespace yuan
         YUAN_ASSERT1(m_state != EXEC)
         m_state = EXEC;
         //                  old_ctx,new_ctx -> 主协程，当前协程
-        if(swapcontext(&t_threadFiber->m_ctx,&m_ctx))
+        if(swapcontext(&Scheduler::GetMainFiber()->m_ctx,&m_ctx))
         {
             YUAN_ASSERT2(false,"swapcontext");
         }
@@ -128,10 +158,26 @@ namespace yuan
     //当前协程切换到后台
     void Fiber::swapOut()
     {
-        SetThis(t_threadFiber.get());
-        if(swapcontext(&m_ctx,&t_threadFiber->m_ctx))//把子协程的上下文保存在自己的m_ctx中，同时t_threadFiber获得主协程的上下文
+        // if (t_fiber != Scheduler::GetMainFiber())
+        // {
+        //     SetThis(Scheduler::GetMainFiber());
+        //     if (swapcontext(&m_ctx, &Scheduler::GetMainFiber()->m_ctx)) // 把子协程的上下文保存在自己的m_ctx中，同时t_threadFiber获得主协程的上下文
+        //     {
+        //         YUAN_ASSERT2(false, "swapcontext");
+        //     }
+        // }
+        // else
+        // {
+        //     SetThis(t_threadFiber.get());
+        //     if (swapcontext(&m_ctx, &Scheduler::GetMainFiber()->m_ctx)) // 把子协程的上下文保存在自己的m_ctx中，同时t_threadFiber获得主协程的上下文
+        //     {
+        //         YUAN_ASSERT2(false, "swapcontext");
+        //     }
+        // }
+        SetThis(Scheduler::GetMainFiber());
+        if (swapcontext(&m_ctx, &Scheduler::GetMainFiber()->m_ctx)) // 把子协程的上下文保存在自己的m_ctx中，同时t_threadFiber获得主协程的上下文
         {
-             YUAN_ASSERT2(false,"swapcontext");
+            YUAN_ASSERT2(false, "swapcontext");
         }
     }
 
@@ -183,7 +229,7 @@ namespace yuan
     //
     void Fiber::MainFunc()
     {
-        Fiber::ptr cur = GetThis(); //GetThis创建的是主协程，没有回调函数
+        Fiber::ptr cur = GetThis(); //当前正在运行的协程
         YUAN_ASSERT1(cur);
         try
         {
@@ -195,7 +241,9 @@ namespace yuan
         {
             cur->m_state = EXCEPT;
             //std::cout<< "Fiber except" << e.what();
-            YUAN_LOG_ERROR(g_logger) << "Fiber except" << e.what();
+            YUAN_LOG_ERROR(g_logger) << "Fiber except" << e.what() 
+                                    << std::endl
+                                    << yuan::BacktraceToString();
         }
         catch(...)
         {
@@ -208,6 +256,38 @@ namespace yuan
         cur.reset();                //释放cur管理的对象，引用计数变为0，对象被销毁
         raw_ptr->swapOut();
 
-        YUAN_ASSERT2(false,"never reach");//不会运行到这行
+        YUAN_ASSERT2(false,"never reach fiber_id =" + std::to_string(raw_ptr->getId()));//不会运行到这行
+    }
+
+    void Fiber::CallerMainFunc()
+    {
+        Fiber::ptr cur = GetThis(); //GetThis创建的是主协程，没有回调函数
+        YUAN_ASSERT1(cur);
+        try
+        {
+            cur->m_cb();
+            cur->m_cb = nullptr;
+            cur->m_state = TERM;
+        }
+        catch(const std::exception& e)
+        {
+            cur->m_state = EXCEPT;
+            //std::cout<< "Fiber except" << e.what();
+            YUAN_LOG_ERROR(g_logger) << "Fiber except" << e.what() 
+                                    << std::endl
+                                    << yuan::BacktraceToString();
+        }
+        catch(...)
+        {
+            cur->m_state = EXCEPT;
+            //std::cout<< "Fiber except";
+            YUAN_LOG_ERROR(g_logger) << "Fiber except";
+        }
+        //Fiber::ptr cur = GetThis()获得对象的指针，该对象的引用计数+1,一直不会释放，执行完函数后，它的引用计数不会变成0，也就不会释放
+        auto raw_ptr = cur.get();   //得到它的裸指针
+        cur.reset();                //释放cur管理的对象，引用计数变为0，对象被销毁
+        raw_ptr->back();
+
+        YUAN_ASSERT2(false,"never reach fiber_id =" + std::to_string(raw_ptr->getId()));//不会运行到这行       
     }
 }

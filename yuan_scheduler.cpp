@@ -1,13 +1,17 @@
 #include"yuan_scheduler.hpp"
-#include"yuan_log.hpp"
+//#include"yuan_log.hpp"
 #include "yuan_macro.hpp"
+#include "yuan_thread.cpp"
+#include "yuan_fiber.cpp"
 
 namespace yuan
 {
-    static yuan::Logger::ptr g_logger = YUAN_LOG_NAME("system");
+    static yuan::Logger::ptr g_logger2 = YUAN_LOG_NAME("system");
 
-    static thread_local Scheduler* t_scheduler = nullptr;
-    static thread_local Fiber* t_fiber = nullptr;
+    static thread_local Scheduler* t_scheduler = nullptr;   //调度器,
+    static thread_local Fiber* t_scheduler_fiber = nullptr;//当前线程的调度协程，每个线程独有一份，包括caller线程
+    
+    //                 默认         1            true
     Scheduler::Scheduler(size_t threads,bool use_call,const std::string& name):m_name(name)
     {
         YUAN_ASSERT1(threads > 0);
@@ -16,12 +20,13 @@ namespace yuan
             yuan::Fiber::GetThis();//该线程没有主协程的话初始化一个
             --threads;
 
-            YUAN_ASSERT1(GetThis == nullptr);
+            YUAN_ASSERT1(GetThis() == nullptr);
             t_scheduler = this;
 
-            m_rootFiber.reset(new Fiber(std::bind(&Scheduler::run,this)));
+            m_rootFiber.reset(new Fiber(std::bind(&Scheduler::run,this),0,true));
             yuan::Thread::SetName(m_name);
-            t_fiber = m_rootFiber.get();
+
+            t_scheduler_fiber = m_rootFiber.get();
             m_rootThread = yuan::GetThreadId();
             m_threadIds.push_back(m_rootThread);
         }
@@ -48,7 +53,7 @@ namespace yuan
 
     Fiber* Scheduler::GetMainFiber()
     {
-        return t_fiber;
+        return t_scheduler_fiber;
     }
 
     void Scheduler::start()
@@ -59,29 +64,40 @@ namespace yuan
             return;
         }
         m_stopping = false;
-        YUAN_ASSERT1(m_threads.empty());    
+        YUAN_ASSERT1(m_threads.empty());
+        std::cout<< "------------------------------------------------- m_threads.size() = " << m_threads.size() << "--------------------------------------------------------------" << std::endl;
+        //初始化
         m_threads.resize(m_threadCount);
         for(size_t i = 0;i<m_threadCount;++i)
         {                                   //      回调函数                     name
             m_threads[i].reset(new Thread(std::bind(&Scheduler::run,this),m_name + "_" + std::to_string(i)));
             m_threadIds.push_back(m_threads[i]->getId());
         }
+        lock.unlock();
+
+        // if(m_rootFiber)
+        // {
+        //     m_rootFiber->call();
+        //     //m_rootFiber->swapIn();
+        //     YUAN_LOG_INFO(g_logger2) << "call out " << m_rootFiber->getState();
+        // }
     }
 
     void Scheduler::stop()
     {
+        //YUAN_LOG_INFO(g_logger2) << "run";
         m_autoStop = true;
         if(m_rootFiber && m_threadCount == 0
                        && (m_rootFiber->getState() == Fiber::TERM || m_rootFiber->getState() == Fiber::INIT))
         {
-            YUAN_LOG_INFO(g_logger) << this << "stopping";
+            YUAN_LOG_INFO(g_logger2) << this << " stopping";
             m_stopping = true;
             if(stopping())
             {
                 return;
             }
         }
-        bool exit_on_this_fiber = false;
+        // bool exit_on_this_fiber = false;
         if(m_rootThread != -1)//use_caller = false
         {
             YUAN_ASSERT1(GetThis() == this);
@@ -90,19 +106,52 @@ namespace yuan
         {
             YUAN_ASSERT1(GetThis() != this);
         }
+
         m_stopping = true;
+        //YUAN_LOG_DEBUG(g_logger2) << "m_stopping = true;";
         //把线程全部唤醒
         for(size_t i = 0;i < m_threadCount;++i)
         {
+            //YUAN_LOG_DEBUG(g_logger2) << "i=" << i;
             tickle();
         }
+
         if(m_rootFiber)
         {
             tickle();
         }
-        if(stopping())
+
+        // if(m_rootFiber)
+        // {
+        //     while(!stopping())
+        //     {
+        //         if(m_rootFiber->getState() == Fiber::TERM || m_rootFiber->getState() == Fiber::EXCEPT)
+        //         {
+        //             m_rootFiber.reset(new Fiber(std::bind(&Scheduler::run,this),0,true));
+        //             YUAN_LOG_INFO(g_logger2) << "root fiber is term,reset";
+        //             t_fiber = m_rootFiber.get();
+        //         }
+        //         m_rootFiber->call();
+        //     }
+        // }
+
+        if(m_rootFiber)
         {
-            return;
+            if(!stopping())
+            {
+                m_rootFiber->call();
+            }
+        }
+
+        std::vector<Thread::ptr> thrs;
+        {
+            MutexType::Lock lock(m_mutex);
+            thrs.swap(m_threads);
+        }
+
+        for(auto& i : thrs)
+        {
+            i->join();
         }
     }
 
@@ -113,11 +162,13 @@ namespace yuan
 
     void Scheduler::run()
     {
+        YUAN_LOG_INFO(g_logger2) <<  m_name << "run";
         setThis();
+        
         //当前线程ID不等于主线程ID
         if(yuan::GetThreadId() != m_rootThread)
         {
-            t_fiber = Fiber::GetThis().get();
+            t_scheduler_fiber = Fiber::GetThis().get();
         }
         
         Fiber::ptr idle_fiber(new Fiber(std::bind(&Scheduler::idle,this)));
@@ -128,6 +179,7 @@ namespace yuan
         {
             ft.reset();
             bool tickle_me = false;//是否通知其他线程进行任务调度
+            bool is_activate = false;
             {
                 Mutex::Lock lock(m_mutex);
 
@@ -149,16 +201,20 @@ namespace yuan
                     }
                     ft = *it;   //把这个任务赋值给ft
                     m_fibers.erase(it);//从任务队列中删除这个任务
+                    ++m_activeThreadCount;
+                    is_activate = true;
+                    break;
                 }
+                //tickle_me |= it != m_fibers.end();
             }
             if(tickle_me)
             {
                 tickle();
             }
             // 是协程  &&   这个任务里面有个协程
-            if(ft.fiber && (ft.fiber->getState() != Fiber::TERM || ft.fiber->getState() != Fiber::EXCEPT))
+            if(ft.fiber && (ft.fiber->getState() != Fiber::TERM && ft.fiber->getState() != Fiber::EXCEPT))
             {
-                ++m_activeThreadCount;
+                
                 ft.fiber->swapIn();     //切换到ft里面的协程执行
                 --m_activeThreadCount;  //协程执行完
 
@@ -168,7 +224,7 @@ namespace yuan
                 }
                 else if(ft.fiber->getState() != Fiber::TERM && ft.fiber->getState() != Fiber::EXCEPT)
                 {
-                    //私有成员不可访问ft.fiber->m_state = Fiber::HOLD;
+                    ft.fiber->m_state = Fiber::HOLD;
                 }
                 ft.reset();
 
@@ -178,7 +234,7 @@ namespace yuan
                 if(cb_fiber)
                 {
                     cb_fiber->reset(ft.cb);
-                    //cb_fiber->reset(&ft.cb);
+                    
                 }
                 else
                 {
@@ -186,7 +242,7 @@ namespace yuan
                 }
 
                 ft.reset();
-                ++m_activeThreadCount;
+
                 cb_fiber->swapIn();
                 --m_activeThreadCount;
 
@@ -201,25 +257,52 @@ namespace yuan
                 }
                 else
                 {
-                    //私有成员不可访问cb_fiber->m_state = Fiber::HOLD;
+                    cb_fiber->m_state = Fiber::HOLD;
                     cb_fiber.reset();
                 }
             }
             else    //没有任务
             {   
+                if(is_activate)
+                {
+                    --m_activeThreadCount;
+                    continue;
+                }
                 if(idle_fiber->getState() == Fiber::TERM)
                 {
+                    YUAN_LOG_INFO(g_logger2) << "idle fiber term";
                     break;
                 }
+
                 ++m_idleThreadCount;
                 idle_fiber->swapIn();
                  --m_idleThreadCount;
-                if(idle_fiber->getState() == Fiber::TERM || idle_fiber->getState() == Fiber::EXCEPT)
+                if(idle_fiber->getState() == Fiber::TERM && idle_fiber->getState() == Fiber::EXCEPT)
                 {
-                    //私有成员不可访问idle_fiber->m_state = Fiber::HOLD;
+                    idle_fiber->m_state = Fiber::HOLD;
                 }
                
             }
+        }
+    }
+    void Scheduler::tickle()
+
+    {
+        YUAN_LOG_INFO(g_logger2) << "tickle";
+    }
+
+    bool Scheduler::stopping()
+    {
+        MutexType::Lock lock(m_mutex);
+        return m_autoStop && m_stopping && m_fibers.empty() && m_activeThreadCount == 0;
+    }
+
+    void Scheduler::idle()
+    {
+        YUAN_LOG_INFO(g_logger2) << "idle";
+        while(!stopping())
+        {
+            yuan::Fiber::YieldToHold();
         }
     }
 }

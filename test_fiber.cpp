@@ -1,6 +1,7 @@
 #include "yuan_fiber.cpp"
 #include "yuan_thread.cpp"
 #include "yuan_log.cpp"
+#include "yuan_scheduler.cpp"
 #include<vector>
 
 yuan::Logger::ptr g_logger = YUAN_LOG_ROOT();
