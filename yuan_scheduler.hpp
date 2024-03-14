@@ -77,6 +77,9 @@ namespace yuan
         void setThis();
         void run();
 
+        // 是否有空余的线程
+        bool hasIdleThreads() {return m_idleThreadCount > 0;}
+
     private:
         template<class FiberOrCb>
         bool scheduleNoLock(FiberOrCb fc,int thread)
