@@ -1,5 +1,5 @@
-#include "yuan_fiber.cpp"
-#include "yuan_thread.cpp"
+#include "yuan_fiber.hpp"
+#include "yuan_thread.hpp"
 #include "yuan_log.cpp"
 #include "yuan_scheduler.cpp"
 #include<vector>
@@ -8,41 +8,62 @@ yuan::Logger::ptr g_logger = YUAN_LOG_ROOT();
 
 void run_in_fiber()
 {
-    YUAN_LOG_INFO(g_logger) << "run_in_fiber begin";
-    //yuan::Fiber::GetThis()->swapOut();  //交出当前协程，切换到主协程
-    yuan::Fiber::YieldToHold();
-
-    YUAN_LOG_INFO(g_logger) << "run_in_fiber end";
-    yuan::Fiber::YieldToHold();
+    YUAN_LOG_INFO(g_logger) << "before run_in_fiber yield";
+    yuan::Fiber::GetThis()->yield();
+    YUAN_LOG_INFO(g_logger) << "after run_in_fiber yield";
 }
 
 void test_fiber()
 {
-    //std::cout << "===========================================================" << std::endl;
-    {
-        yuan::Fiber::GetThis();     //创建当前线程的主协程
-        YUAN_LOG_INFO(g_logger) << "main begin";
-        yuan::Fiber::ptr fiber(new yuan::Fiber(run_in_fiber)); //主协程下创建子协程
-        fiber->swapIn();        //切换到子协程下运行 run_in_fiber函数
-        YUAN_LOG_INFO(g_logger) << "main after swapIn";
-        fiber->swapIn();
-        YUAN_LOG_INFO(g_logger) << "main after end";
-        fiber->swapIn();
-    }
-    YUAN_LOG_INFO(g_logger) << "main after end2";
+    YUAN_LOG_INFO(g_logger) << "test_fiber begin";
+
+    yuan::Fiber::GetThis();//初始化线程的主协程
+    yuan::Fiber::ptr fiber(new yuan::Fiber(&run_in_fiber,0,false));
+
+    YUAN_LOG_INFO(g_logger) << "before resume test_fiber";
+    fiber->resume();        //子协程恢复运行
+    YUAN_LOG_INFO(g_logger) << "after resume test_fiber";
+
+    fiber->resume();//子协程再次恢复运行
+
+    
+
+    YUAN_LOG_INFO(g_logger) << "run_in_fiber end";
 }
+
+// void test11()
+// {
+//     std::cout << "----------------------------- test ------------------------------" << std::endl;
+//     yuan::Fiber::GetThis()->yield();
+//     std::cout << "----------------------------- test2 ------------------------------" << std::endl;
+// }
 
 int main()
 {
-    yuan::Thread::SetName("main");
-    std::vector<yuan::Thread::ptr> ths;
+    // std::cout << "----------------------------- main ------------------------------" << std::endl;
+    // yuan::Fiber::GetThis();
+    // yuan::Fiber::ptr fiber(new yuan::Fiber(&test11,0,false));
+    // YUAN_LOG_INFO(g_logger) << "before resum";
+    // fiber->resume();
+    // YUAN_LOG_INFO(g_logger) << "before resum2";
+    // fiber->resume();
+    // YUAN_LOG_INFO(g_logger) << "after resum2";
+
+
+    YUAN_LOG_INFO(g_logger) << "main begin";
+
+    yuan::Fiber::GetThis();
+
+    std::vector<yuan::Thread::ptr> thv;
     for(int i = 0;i<3;++i)
     {
-        ths.push_back(yuan::Thread::ptr(new yuan::Thread(&test_fiber,"name"+std::to_string(i))));
+        thv.push_back(yuan::Thread::ptr(new yuan::Thread(&test_fiber,"thread_" + std::to_string(i))));
     }
-    for(int i = 0;i<3;++i)
+
+    for(auto& i : thv)
     {
-        ths[i]->join();
+        i->join();
     }
-    return 0;
+   
+    YUAN_LOG_INFO(g_logger) << "main end";
 }

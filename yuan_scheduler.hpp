@@ -15,7 +15,7 @@ namespace yuan
         typedef std::shared_ptr<Scheduler> ptr;
         typedef Mutex MutexType;
         //           线程数                 是否将当前线程加入到调度器中
-        Scheduler(size_t threads = 1,bool use_call = true,const std::string& name = "");
+        Scheduler(size_t threads = 1,bool use_call = true,const std::string& name = "Schedule");
         virtual ~Scheduler();
 
         const std::string& getName() const {return m_name;}
@@ -54,10 +54,11 @@ namespace yuan
                 MutexType::Lock lock(m_mutex);
                 while(begin != end)
                 {
-                    need_tickle = scheduleNoLock(&*begin) || need_tickle;
+                    need_tickle = scheduleNoLock(&*begin,-1) || need_tickle;
+                    ++begin;
                 }
             }
-            if(need_tickle)
+            if(need_tickle)//有任务就执行tickle
             {
                 tickle();
             }
@@ -79,19 +80,6 @@ namespace yuan
 
         // 是否有空余的线程
         bool hasIdleThreads() {return m_idleThreadCount > 0;}
-
-    private:
-        template<class FiberOrCb>
-        bool scheduleNoLock(FiberOrCb fc,int thread)
-        {
-            bool need_tickle = m_fibers.empty();//计划要执行的协程是否为空
-            ScheduleTask ft(fc,thread);         //创建任务，协程或者回调函数
-            if(ft.fiber || ft.cb)
-            {
-                m_fibers.push_back(ft);//加入到任务队列
-            }
-            return need_tickle;
-        }
 
     private:
         struct ScheduleTask
@@ -124,20 +112,32 @@ namespace yuan
                 thread = -1;
             }         
         };
+
+        template<class FiberOrCb>
+        bool scheduleNoLock(FiberOrCb fc,int thread)
+        {
+            bool need_tickle = m_fibers.empty();//计划要执行的协程是否为空
+            ScheduleTask ft(fc,thread);    //创建任务，协程或者回调函数
+            if(ft.fiber || ft.cb)
+            {
+                m_fibers.push_back(ft);//加入到任务队列
+            }
+            return need_tickle;
+        }
     private:
         MutexType m_mutex;
-        std::vector<Thread::ptr> m_threads;
-        std::list<ScheduleTask> m_fibers; //协程的任务队列
-        Fiber::ptr m_rootFiber;           //ues_caller为true时，调度器所在线程的调度协程
+        std::vector<Thread::ptr> m_threads;                //线程池
+        std::list<ScheduleTask> m_fibers;                  //协程的任务队列
+        Fiber::ptr m_rootFiber;                             //ues_caller为true时，调度器所在线程的调度协程
         std::string m_name;
-    protected:
-        std::vector<int> m_threadIds;       //所有的线程ID
-        std::atomic<size_t> m_threadCount = {0};           //线程数量
-        std::atomic<size_t> m_activeThreadCount = {0};     //活跃线程数量
-        size_t m_idleThreadCount = 0;       //空闲线程数量
-        bool m_stopping = true;             //还没有启动
-        bool m_autoStop = false;;
-        int m_rootThread = 0;               //ues_caller为true时，调度器所在线程的id
+        std::vector<int> m_threadIds;                       //所有的线程ID
+        
+        size_t m_threadCount = 0;                           //工作线程数量，不包含use_caller线程
+        std::atomic<size_t> m_activeThreadCount = {0};      //活跃线程数量
+        std::atomic<size_t> m_idleThreadCount = {0};        //空闲线程数量
+        bool m_stopping = false;                            //还没有启动
+        bool m_useCaller;
+        int m_rootThread = 0;                               //ues_caller为true时，调度器所在线程的id
     };
 }
 #endif

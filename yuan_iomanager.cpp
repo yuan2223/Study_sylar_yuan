@@ -1,12 +1,14 @@
 #include "yuan_iomanager.hpp"
 #include "yuan_macro.hpp"
 #include "yuan_log.cpp"
+#include "yuan_timer.cpp"
 
 #include <unistd.h>
 #include <sys/epoll.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <string.h>
+#include<vector>
 
 namespace yuan
 {
@@ -44,7 +46,8 @@ namespace yuan
             ctx.scheduler->schedule(&ctx.fiber);
         }
 
-        ctx.scheduler = nullptr;
+        //ctx.scheduler = nullptr;
+        resetContext(ctx);
         return;
     }
 
@@ -122,7 +125,6 @@ namespace yuan
         RWMutexType::ReadLock lock(m_mutex);
         if ((int)m_fdContexts.size() > fd)
         {
-            RWMutexType::ReadLock lock(m_mutex);
             fd_ctx = m_fdContexts[fd];
             lock.unlock();
         }
@@ -137,8 +139,8 @@ namespace yuan
         FdContext::MutexType::Lock lock2(fd_ctx->mutex);
         if (fd_ctx->events & event) // 添加的事件已经有了
         {
-            YUAN_LOG_ERROR(g_logger4) << "addEVent assert fd" << fd
-                                      << "event=" << event
+            YUAN_LOG_ERROR(g_logger4) << "addEVent assert fd=" << fd
+                                      << "event=" << (EPOLL_EVENTS)event
                                       << "fd_ctx.event=" << (EPOLL_EVENTS)fd_ctx->events;
             YUAN_ASSERT1(!(fd_ctx->events & event));
         }
@@ -162,7 +164,7 @@ namespace yuan
         ++m_pendingEventCount;
 
         fd_ctx->events = (Event)(fd_ctx->events | event);
-        FdContext::EventContext &event_ctx = fd_ctx->getContext(event);
+        FdContext::EventCsimlinontext &event_ctx = fd_ctx->getContext(event);
         YUAN_ASSERT1(!event_ctx.scheduler && !event_ctx.fiber && !event_ctx.cb);
 
         event_ctx.scheduler = Scheduler::GetThis();
@@ -306,6 +308,7 @@ namespace yuan
         return dynamic_cast<IOManager *>(Scheduler::GetThis());
     }
 
+    //写pipe让idle协程退出，待idle协程yield之后就可以调度其他任务
     void IOManager::tickle()
     {
         if (!hasIdleThreads())
@@ -317,9 +320,16 @@ namespace yuan
         YUAN_ASSERT1(rt == 1);
     }
 
+    bool IOManager::stopping(uint64_t& timeout)
+    {
+        timeout = getNextTimer();
+        return timeout == ~0ull && m_pendingEventCount == 0 && Scheduler::stopping();
+    }
+
     bool IOManager::stopping()
     { // 剩余要处理的事件为 0
-        return Scheduler::stopping() && m_pendingEventCount == 0;
+        uint64_t timeout = 0;
+        return stopping(timeout);
     }
 
     // void IOManager::idle()
@@ -444,7 +454,8 @@ namespace yuan
 
         while (true)
         {
-            if ((stopping()))
+            uint64_t next_timeout = 0;
+            if ((stopping(next_timeout)))
             {
                 YUAN_LOG_INFO(g_logger4) << "name=" << getName()
                                         << " idle stopping exit";
@@ -455,9 +466,18 @@ namespace yuan
             do
             {
                 static const int MAX_TIMEOUT = 3000;
-                rt = epoll_wait(m_epfd, events, MAX_EVNETS, MAX_TIMEOUT);
+                if(next_timeout != !0ull)
+                {
+                    next_timeout = (int)next_timeout > MAX_TIMEOUT ? MAX_TIMEOUT : next_timeout;
+                }
+                else
+                {
+                    next_timeout = MAX_TIMEOUT;
+                }
+                rt = epoll_wait(m_epfd, events, MAX_EVNETS, int(next_timeout));
                 if (rt < 0 && errno == EINTR)
                 {
+                    continue;
                 }
                 else
                 {
@@ -465,9 +485,16 @@ namespace yuan
                 }
             } while (true);
 
-            // if(SYLAR_UNLIKELY(rt == MAX_EVNETS)) {
-            //     SYLAR_LOG_INFO(g_logger) << "epoll wait events=" << rt;
-            // }
+
+            //收集所有已经超时的定时器，执行回调函数
+            std::vector<std::function<void()>> cbs;
+            listExpiredCb(cbs);
+            if(!cbs.empty())
+            {
+                //YUAN_LOG_INFO(g_logger) << "on timer cbs.size()=" << cbs.size();
+                schedule(cbs.begin(),cbs.end());
+                cbs.clear();
+            }
 
             for (int i = 0; i < rt; ++i)
             {
@@ -478,8 +505,10 @@ namespace yuan
                     while (read(m_tickleFds[0], dummy, sizeof(dummy)) > 0);
                     continue;
                 }
+
                 FdContext *fd_ctx = (FdContext *)event.data.ptr;
                 FdContext::MutexType::Lock lock(fd_ctx->mutex);
+
                 if (event.events & (EPOLLERR | EPOLLHUP))
                 {
                     event.events |= (EPOLLIN | EPOLLOUT) & fd_ctx->events;
@@ -514,6 +543,8 @@ namespace yuan
 
                 // SYLAR_LOG_INFO(g_logger) << " fd=" << fd_ctx->fd << " events=" << fd_ctx->events
                 //                          << " real_events=" << real_events;
+                
+                //处理已经发生的事件
                 if (real_events & READ)
                 {
                     fd_ctx->triggerEvent(READ);
@@ -530,7 +561,13 @@ namespace yuan
             auto raw_ptr = cur.get();
             cur.reset();
 
-            raw_ptr->swapOut();
+            //raw_ptr->swapOut();
+            raw_ptr->yield();
         }
+    }
+
+    void IOManager::onTimerInsertedAtFront()
+    {
+        tickle();
     }
 }

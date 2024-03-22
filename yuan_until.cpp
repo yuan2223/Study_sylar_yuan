@@ -2,6 +2,7 @@
 #include <sstream>
 #include<iostream>
 #include<execinfo.h>
+#include<sys/time.h>
 #include"yuan_fiber.hpp"
 
 
@@ -54,5 +55,18 @@ namespace yuan
             ss << prefix << bt[i] << std::endl;
         }
         return ss.str();
+    }
+
+    uint64_t GetCurrentMS()        //毫秒
+    {
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        return tv.tv_sec *1000 + tv.tv_usec / 1000;
+    }
+    uint64_t GetCurrentUS()        //微秒
+    {
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        return tv.tv_sec *1000*1000 + tv.tv_usec;
     }
 }

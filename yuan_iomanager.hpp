@@ -1,11 +1,12 @@
 #ifndef __YUAN_IOMANAGER_HPP__
 #define __YUAN_IOMANAGER_HPP__
 #include "yuan_scheduler.cpp"
+#include "yuan_timer.hpp"
 
 namespace yuan
 {
 
-class IOManager:public Scheduler
+class IOManager:public Scheduler,public TimerManager
 {
 public:
     typedef std::shared_ptr<IOManager> ptr;
@@ -15,7 +16,7 @@ public:
     {
         NONE = 0x0,
         READ = 0x1,     //EPOLLIIN
-        WRITE = 0x2,    //EPOLLOUT
+        WRITE = 0x4,    //EPOLLOUT
     };
 
 private:
@@ -29,7 +30,7 @@ private:
             std::function<void()> cb;                   //事件的回调函数
         };
 
-        EventContext& getContext(Event event);
+        EventContext& getContext(Event event);          //获取事件的上下文
         void resetContext(EventContext& ctx);
         void triggerEvent(Event event); 
         
@@ -41,7 +42,7 @@ private:
         MutexType mutex;
     };
 public:
-    IOManager(size_t threads = 1,bool use_caller = true,const std::string& name = "");
+    IOManager(size_t threads = 1,bool use_caller = true,const std::string& name = "IOManager");
     ~IOManager();
 
     //0 成功   -1 错误
@@ -57,8 +58,10 @@ protected:
     void tickle() override;
     bool stopping() override;
     void idle() override;
+    void onTimerInsertedAtFront() override;
     
     void contextResize(size_t size);
+    bool stopping(uint64_t& timeout);
 private:
     int m_epfd;
     int m_tickleFds[2];
